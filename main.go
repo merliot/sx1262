@@ -13,6 +13,12 @@ import (
 	"gobot.io/x/gobot/platforms/raspi"
 )
 
+var (
+	adaptor = raspi.NewAdaptor()
+	m0 = gpio.NewDirectPinDriver(adaptor, "15") // GPIO 22
+	m1 = gpio.NewDirectPinDriver(adaptor, "13") // GPIO 27
+)
+
 const (
 	cmdCfgReg      byte = 0xC0
 	cmdReadReg          = 0xC1
@@ -94,6 +100,11 @@ func (cmd *command) exec(rw io.ReadWriter) (*answer, error) {
 	var length *byte = &buf[2]
 	var sofar, stop int
 
+	m0.Off() // low
+	m1.On()  // high
+
+	time.Sleep(100 * time.Millisecond)
+
 	_, err := rw.Write(cmd.bytes())
 	if err != nil {
 		return nil, err
@@ -121,10 +132,12 @@ func (cmd *command) exec(rw io.ReadWriter) (*answer, error) {
 
 	err = ans.from(buf[:sofar+1])
 
+	m1.Off() // low
+
+	time.Sleep(100 * time.Millisecond)
+
 	return &ans, err
 }
-
-var answerError = answer{command{0xFF, 0xFF, 0xFF, nil}}
 
 const (
 	regADDH byte = iota
@@ -139,34 +152,33 @@ const (
 	regPID = 0x80
 )
 
-func main() {
-	adaptor := raspi.NewAdaptor()
-	adaptor.Connect()
+var (
+	answerError = answer{command{0xFF, 0xFF, 0xFF, nil}}
+	getAll = command{cmdReadReg, regADDH, 0x09, nil}
+	setAll = command{cmdCfgTmpReg, regADDH, 0x09, nil}
+)
 
-	M0 := gpio.NewDirectPinDriver(adaptor, "15") // GPIO 22
-	M1 := gpio.NewDirectPinDriver(adaptor, "13") // GPIO 27
+func main() {
+	adaptor.Connect()
 
 	println("opening")
 	c := &serial.Config{Name: "/dev/ttyS0", Baud: 9600}
-	s, err := serial.OpenPort(c)
+	port, err := serial.OpenPort(c)
 	if err != nil {
 		log.Fatal(err)
 	}
 	println("open OK")
 
-	M0.Off() // low
-	M1.On()  // high
-	time.Sleep(100 * time.Millisecond)
+	cmd := setAll
+	cmd.data[regADDH] = 
 
-	cmd := command{cmdReadReg, regADDH, 0x09, nil}
-	fmt.Println(cmd.dump())
 
-	ans, err := cmd.exec(s)
+	fmt.Println(getAll.dump())
+	ans, err := getAll.exec(port)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println(ans.dump())
 
-	s.Close()
-	M1.Off() // low
+	port.Close()
 }
