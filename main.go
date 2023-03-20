@@ -170,7 +170,7 @@ func main() {
 	println("open OK")
 
 	cmd := setAll
-	cmd.data[regADDH] = 
+	cmd.data[regADDH] = xxx
 
 
 	fmt.Println(getAll.dump())
