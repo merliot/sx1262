@@ -27,14 +27,68 @@ type command struct {
 	data          []byte
 }
 
-func (cmd command) bytes() []byte {
+type answer struct {
+	command
+}
+
+func (cmd *command) bytes() []byte {
 	b := make([]byte, 0, len(cmd.data)+3)
 	b = append(b, cmd.head, cmd.beginRegister, cmd.length)
 	b = append(b, cmd.data...)
 	return b
 }
 
-func (cmd command) exec(rw io.ReadWriter) (*answer, error) {
+func (cmd *command) from(data []byte) error {
+	if len(data) < 3 {
+		return errors.New("insufficient data for cmdwer header")
+	}
+	cmd.head = data[0]
+	cmd.beginRegister = data[1]
+	cmd.length = data[2]
+	if len(data) < 3+int(cmd.length) {
+		return errors.New("insufficient data for cmdwer payload")
+	}
+	cmd.data = make([]byte, cmd.length)
+	copy(cmd.data, data[3:3+cmd.length])
+	return nil
+}
+
+func (cmd *command) _dump(all bool) string {
+	var s string
+
+	fmt.Println(hex.Dump(cmd.bytes()))
+
+	s += fmt.Sprintf("Head:           0x%02X\n", cmd.head)
+	s += fmt.Sprintf("Begin Register: 0x%02X\n", cmd.beginRegister)
+	s += fmt.Sprintf("Length:         0x%02X\n", cmd.length)
+
+	if !all && cmd.head == cmdReadReg {
+		return s
+	}
+
+	for i := 0; i < int(cmd.length); i++ {
+		switch cmd.beginRegister + byte(i) {
+		case regADDH:
+			s += fmt.Sprintf("ADDH:           0x%02X\n", cmd.data[i])
+		case regADDL:
+			s += fmt.Sprintf("ADDL:           0x%02X\n", cmd.data[i])
+		case regNETID:
+			s += fmt.Sprintf("NETID:          0x%02X\n", cmd.data[i])
+		}
+	}
+
+	return s
+}
+
+func (cmd *command) dump() string {
+	return cmd._dump(false)
+}
+
+func (ans *answer) dump() string {
+	return ans._dump(true)
+}
+
+func (cmd *command) exec(rw io.ReadWriter) (*answer, error) {
 	var ans answer
 	var buf [3+9]byte
 	var length *byte = &buf[2]
@@ -70,47 +124,7 @@ func (cmd command) exec(rw io.ReadWriter) (*answer, error) {
 	return &ans, err
 }
 
-type answer struct {
-	head          byte
-	beginRegister byte
-	length        byte
-	data          []byte
-}
-
-func (ans *answer) bytes() []byte {
-	b := make([]byte, 0, len(ans.data)+3)
-	b = append(b, ans.head, ans.beginRegister, ans.length)
-	b = append(b, ans.data...)
-	return b
-}
-
-func (ans *answer) from(data []byte) error {
-	if len(data) < 3 {
-		return errors.New("insufficient data for answer header")
-	}
-	ans.head = data[0]
-	ans.beginRegister = data[1]
-	ans.length = data[2]
-	if len(data) < 3+int(ans.length) {
-		return errors.New("insufficient data for answer payload")
-	}
-	ans.data = make([]byte, ans.length)
-	copy(ans.data, data[3:3+ans.length])
-	return nil
-}
-
-func (ans *answer) dump() string {
-	var s string
-	fmt.Println(hex.Dump(ans.bytes()))
-	for i := 0; i < ans.length; i++ {
-		switch i {
-		case 0:
-			s = append(s, ans.data[i])
-		}
-	}
-}
-
-var answerError = answer{0xFF, 0xFF, 0xFF, nil}
+var answerError = answer{command{0xFF, 0xFF, 0xFF, nil}}
 
 const (
 	regADDH byte = iota
